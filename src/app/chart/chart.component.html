@@ -1,0 +1,8 @@
+<button (click)="sendMessage('getHistory',{list:121454})">подгрузить историю</button>
+<div class="chart-container">
+  <div *ngFor="let entry of data; let i = index">
+    <div class="chart-bar" [style.height]="chartHeights[i]"></div>
+    <div class="chart-label">{{ entry.time }}</div>
+  </div>
+</div>
+ssssssss

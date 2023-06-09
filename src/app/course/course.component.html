@@ -1,0 +1,41 @@
+<div class="container">
+  <div class="pair-buttons">
+    <div *ngFor="let pair of getObjectKeys(socketService.DATA);let i=index;" class="pair-button btn btn-primary m-1" (click)="togglePair(pair,i)" [ngClass]="{'active': activePair === pair}">
+      <div *ngIf="socketService.DATA[pair][0]">
+        {{ pair }}
+      </div>
+    </div>
+  </div>
+
+  <div class="period-buttons">
+    <button class="btn btn-secondary m-1" (click)="togglePeriod(5*12)" [ngClass]="{'active': activePeriod === 1}">
+      {{5*12}}m
+    </button>
+    <button class="btn btn-secondary m-1" (click)="togglePeriod(5*12*3)" [ngClass]="{'active': activePeriod === 5*12*3}">
+      {{5*12*3}}h
+    </button>
+    <button class="btn btn-secondary m-1" (click)="togglePeriod(24*30)" [ngClass]="{'active': activePeriod === 24*30}">
+      30d
+    </button>
+    <button class="btn btn-secondary m-1" (click)="togglePeriod(24*365)" [ngClass]="{'active': activePeriod === 24*365}">
+      365d
+    </button>
+    <button class="btn btn-secondary m-1" (click)="togglePeriod(24*365*2)" [ngClass]="{'active': activePeriod === 24*365*2}">
+      365*2d
+    </button>
+  </div>
+
+  <div *ngIf="activePair" class="chart-container">
+    <canvas class="chart" baseChart
+            [data]="financialChartData"
+            [options]="financialChartOptions"
+            [type]="financialChartType">
+    </canvas>
+  </div>
+
+
+
+
+
+  </div>
+

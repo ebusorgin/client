@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.4.0/p5.js"></script>
+  <script src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
+  <script src="https://code.jquery.com/jquery-3.2.1.min.js"></script>
+  <script src="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/js/bootstrap.min.js"></script>
+  <script src="https://d3js.org/d3.v3.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/gh/wagenaartje/neataptic@b0c454af/mkdocs/theme/js/articles/neuroevolution/webcola.js"></script>
+  <script src="https://cdn.jsdelivr.net/gh/wagenaartje/neataptic@b0c454af/graph/graph.js"></script>
+  <script src="https://unpkg.com/neataptic/dist/neataptic.js"></script>
+  <style src="https://cdn.jsdelivr.net/gh/wagenaartje/neataptic@b0c454af/graph/graph.css"></style>
+  <style>
+    #canvas-container {
+      display: flex;
+      flex-wrap: wrap;
+    }
+
+    .canvas-block {
+      margin: 10px;
+      text-align: left;
+    }
+  .p5Canvas{
+    padding: 5px;
+    text-align: left;
+  }
+    .canvas-block > canvas {
+      display: block;
+    }
+
+    .canvas-block > div {
+      text-align: left;
+      margin: 5px;
+    }
+  </style>
+</head>
+<body>
+<div class="graph-container"></div>
+<div id="canvas-container"></div>
+<script src="sketch.js"></script>
+<div>POINT <span id="point"></span></div>
+<div>BOT <span id="bot"></span></div>
+<div id="conteb"></div>
+</body>
+</html>
