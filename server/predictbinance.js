@@ -1,6 +1,7 @@
 const tf = require('@tensorflow/tfjs');
 require('@tensorflow/tfjs-node');
-const { Client } = require('pg');
+const db = require('./db');
+const DB = new db();
 const technicalindicators = require('technicalindicators');
 const EMA = technicalindicators.EMA;
 const RSI = technicalindicators.RSI;
@@ -10,19 +11,13 @@ let SYMBOLS_PAIRS = []
 const LOOK_BACK = [12*1,12*2,12*3,12*6,12*24];
 
 // Создаем клиент для подключения к Postgres
-const client = new Client({
-  user: 'postgres',
-  host: 'localhost',
-  database: 'postgres',
-  password: 'postgres',
-  port: 5432,
-});
+
 
 // Функция для получения данных из БД
-async function getData() {
-  await client.connect();
+async function getData(datalength) {
 
-  const res = await client.query(`WITH ranked_rows AS (
+
+  const res = await DB.query(`WITH ranked_rows AS (
   SELECT
     t.*,
     ROW_NUMBER() OVER (
@@ -35,11 +30,13 @@ async function getData() {
   WHERE p.enabled = true
 )
 SELECT * FROM ranked_rows
-WHERE rn <= ${12*24*3};`);
+WHERE rn <= ${datalength}`);
 //   const res = await client.query(`SELECT * FROM  binance.candlestic`);
-  await client.end();
-  res.rows.reverse()
-  return res.rows;
+  console.log('res.rows',res.length)
+  res.reverse()
+
+
+  return res;
 }
 function calculateIndicatorsEMA(arr){
   let clPrArr = arr.map(({close}) => parseFloat(close));
@@ -86,7 +83,7 @@ const calculateMinMaxRSI = (pairs, pair, lookbackPeriod) => {
 
   return (`For pair ${pair}, min RSI: ${minRSI} at time: ${minRSITime}, max RSI: ${maxRSI} at time: ${maxRSITime}`);
 }
-async function createDataset(arr,windowSize) {
+async function createDataset(arr,windowSize,predict = false) {
   let data = {}
 
   arr.map(d=>{data[d.currency] = []})
@@ -118,7 +115,6 @@ async function createDataset(arr,windowSize) {
   let numOutput = 0;
   for (const symbol in data) {
     const symbolData = data[symbol];
-
     const oneHotSymbol = Object.keys(data).map(s => (s === symbol ? 1 : 0));
     for (let i = windowSize - 1; i < symbolData.length - windowSize - 1; i++) {
       const inputWindow = symbolData.slice(i - windowSize + 1, i + 1).map((candle, idx) => {
@@ -127,20 +123,28 @@ async function createDataset(arr,windowSize) {
           ...FEATURES.map(feat => parseFloat(candle[feat])),
         ];
         numInput = features.length
+
         return features;
       });
-      const outputWindow = [
-        ...oneHotSymbol,
-        // Относительные изменения
-        (symbolData[i + 1].close - symbolData[i].close) / symbolData[i].close,
-        // Направление движения
-        symbolData[i + 1].close > symbolData[i].close ? 1 : 0,
-        symbolData[i + 2].close > symbolData[i].close ? 1 : 0,
-        symbolData[i + 3].close > symbolData[i].close ? 1 : 0,
-      ];
-      numOutput = outputWindow.length
+
+
+
+        const outputWindow = [
+          ...oneHotSymbol,
+          // Относительные изменения
+          (symbolData[i + 1].close - symbolData[i].close) / symbolData[i].close,
+          // Направление движения
+          symbolData[i + 1].close > symbolData[i].close ? 1 : 0,
+          symbolData[i + 2].close > symbolData[i].close ? 1 : 0,
+          symbolData[i + 3].close > symbolData[i].close ? 1 : 0,
+        ];
+        numOutput = outputWindow.length
+        outputTensors.push(outputWindow);
+
+
+
       inputTensors.push(inputWindow);
-      outputTensors.push(outputWindow);
+
     }
 
   }
@@ -153,13 +157,16 @@ async function createDataset(arr,windowSize) {
   }
 
   const outputTensor = tf.concat(groupedOutputTensors.map(tensors => tf.tensor2d(tensors)), 0);
+
   const tensors = {
     inputTensors: tf.tensor3d(inputTensors),
     outputTensors: outputTensor,
     numInput,
     numOutput,
   }
+
   const splitIndex = Math.floor(tensors.inputTensors.shape[0] * 0.8);
+  // const splitIndex = 1;
   const [trainInputs, testInputs] = tf.split(tensors.inputTensors, [splitIndex, tensors.inputTensors.shape[0] - splitIndex], 0);
   const [trainOutputs, testOutputs] = tf.split(tensors.outputTensors, [splitIndex, tensors.outputTensors.shape[0] - splitIndex], 0);
 
@@ -219,19 +226,26 @@ async function trainModel(model, data, params) {
   return { model, performance,history };
 }
 
-async function main() {
-  const WINDOWS_SIZE = 12*1
-
-  const data = await getData();
+async function main(predict = false,datalength = 12*24*7,WINDOWS_SIZE = 12*1) {
+  let model
+  const data = await getData(datalength);
   const { trainData, testData, inputShape,outputUnits } = await createDataset(data,WINDOWS_SIZE);
-  const m = await createModel({
-    inputShape: [WINDOWS_SIZE, inputShape],
-    units: inputShape,
-    returnSequences: true,
-  },outputUnits);
+  if (!predict){
+    const m = await createModel({
+      inputShape: [WINDOWS_SIZE, inputShape],
+      units: inputShape,
+      returnSequences: true,
+    },outputUnits);
 
-  const { model, performance } = await trainModel(m,trainData,{epochs: 1, batchSize: WINDOWS_SIZE})
-  await saveModel(model)
+    const modPer = await trainModel(m,trainData,{epochs: 2, batchSize: WINDOWS_SIZE})
+    model = modPer.model
+    performance = modPer.performance
+    await saveModel(model)
+  }else{
+    model = await tf.loadLayersModel('file://my-model-1/model.json');
+  }
+
+
   const predictions = model.predict(testData.xs)
   // console.log(predictions)
   // predictions.array().then(result => {
@@ -242,21 +256,21 @@ async function main() {
   // });
   // let symbols = ['TRXUSDT', 'NEOUSDT', 'ETHUSDT', 'ETCUSDT', 'BTCUSDT'];
 
-  interpretPredictions(predictions, SYMBOLS_PAIRS);
+  return await interpretPredictions(predictions, SYMBOLS_PAIRS);
 }
-function interpretPredictions(predictions, symbols) {
-  predictions.array().then(result => {
-    result[result.length-1].forEach((value, index) => {
-      if (index < symbols.length) {
-        console.log(`Currency: ${symbols[index]}, Probability: ${value}`);
-      } else {
-        console.log(`The relative change in price: ${value}`);
-      }
-    });
-  });
+async function interpretPredictions(predictions, symbols) {
+  const result = await predictions.arraySync();
+
+
+  return {result,symbols}
 }
 async function saveModel(model) {
   const saveResults = await model.save('file://my-model-1');
-  console.log(saveResults);
+  console.log('save');
 }
-main().catch(console.error);
+// main().catch(console.error);
+module.exports.createDataset = createDataset;
+module.exports.calculateIndicatorsEMA = calculateIndicatorsEMA;
+module.exports.calculateIndicatorsRSI = calculateIndicatorsRSI;
+module.exports.getData = getData;
+module.exports.main = main;

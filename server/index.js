@@ -56,14 +56,14 @@ const s = require('./server');
 const SERVER = new s()
 const server = http.createServer(app);
 
-const io = socketIo(server, {
+global.io = socketIo(server, {
   cors: {
     origin: "http://localhost:4200",
     methods: ["GET", "POST"]
   }
 });
 
-io.on('connection', (socket) => {
+global.io.on('connection', (socket) => {
   console.log('a user connected');
 
   socket.on('message', async (message) => {
@@ -71,7 +71,7 @@ io.on('connection', (socket) => {
     switch (message.method){
       case 'updateCourse':
         socket.emit('message', {method:message.method,requestId:message.requestId,data:{}});
-        await BinanceDB.parsePairData()
+        await BinanceDB.parsePairData(socket)
         break;
       case 'getBalanceBinance':
         let balance = await BinanceDB.getBalance()
