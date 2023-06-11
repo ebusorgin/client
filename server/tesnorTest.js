@@ -4,6 +4,8 @@ const DB = new db();
 const technicalindicators = require('technicalindicators');
 const EMA = technicalindicators.EMA;
 const RSI = technicalindicators.RSI;
+const MACD = technicalindicators.MACD;
+const ADX = technicalindicators.ADX;
 // const trainingData = tf.tensor3d([
 //   [[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]],
 //   [[13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24]]
@@ -15,23 +17,19 @@ const RSI = technicalindicators.RSI;
 // ]);
 
 const CLOSET_ARR = 12*24
-const DB_ARR_LENGTH_DAY = 150
-const LSTM_LAYER_UNITS = 12*24*2
+const DB_ARR_LENGTH_DAY = 10
+const LSTM_LAYER_UNITS = 12*10
 const EPOCHS =5
-const BATCHSIZE = 12*12
+const BATCHSIZE = 12*5
 const HIDDEN_LAYERS = [
-  {
-    units: 400,
-    activation: 'sigmoid'
-  },
-  {
-    units: 100,
-    activation: 'sigmoid'
-  },
-  {
-    units: 60,
-    activation: 'sigmoid'
-  }
+  // {
+  //   units: 200,
+  //   activation: 'sigmoid'
+  // },
+  // {
+  //   units: 100,
+  //   activation: 'sigmoid'
+  // },
 ]
 
 
@@ -58,88 +56,112 @@ function calculatePriceChange(todayPrice, yesterdayPrice) {
 async function main(){
   const arr = await getData(DB_ARR_LENGTH_DAY)
 
-  let values = [5, 5, 5, 5, 2, 3];
-  let rsi = RSI.calculate({ period: 5, values: values });
-  console.log(rsi); // Вернет: []
-  let arr2 = [
-    {close:1,open:2,volume:3,time:100,currency:'BTCUSDT'},
-    {close:2,open:5,volume:6,time:100,currency:'DOGEUSDT'},
-    {close:3,open:8,volume:9,time:100,currency:'ETHUSDT'},
-    {close:4,open:9,volume:6,time:100,currency:'LTCUSDT'},
-
-    {close:2,open:2,volume:3,time:101,currency:'BTCUSDT'},
-    {close:2.9,open:5,volume:6,time:101,currency:'DOGEUSDT'},
-    {close:3,open:8,volume:9,time:101,currency:'ETHUSDT'},
-    {close:4,open:5,volume:2,time:101,currency:'LTCUSDT'},
-
-    {close:5,open:2,volume:3,time:102,currency:'BTCUSDT'},
-    {close:5,open:5,volume:6,time:102,currency:'DOGEUSDT'},
-    {close:5,open:8,volume:9,time:102,currency:'ETHUSDT'},
-    {close:5,open:11,volume:12,time:102,currency:'LTCUSDT'},
-
-    {close:5,open:14,volume:1,time:103,currency:'BTCUSDT'},
-    {close:3,open:17,volume:18,time:103,currency:'DOGEUSDT'},
-    {close:3,open:20,volume:21,time:103,currency:'ETHUSDT'},
-    {close:3,open:23,volume:24,time:103,currency:'LTCUSDT'},
-
-    {close:2,open:14,volume:1,time:104,currency:'BTCUSDT'},
-    {close:4,open:17,volume:18,time:104,currency:'DOGEUSDT'},
-    {close:4,open:20,volume:21,time:104,currency:'ETHUSDT'},
-    {close:3,open:23,volume:24,time:104,currency:'LTCUSDT'},
-
-  ]
-
+  // let values = [5, 5, 5, 5, 2, 3];
+  // let rsi = RSI.calculate({ period: 5, values: values });
+  // console.log(rsi); // Вернет: []
+  // let arr = [
+  //
+  // ]
+  // for (let i = 0; i < 110; i++) {
+  //   arr.push({close:1,open:Math.random(),volume:Math.random(),time:i,currency:'BTCUSDT'})
+  //   arr.push({close:2,open:Math.random(),volume:Math.random(),time:i,currency:'DOGEUSDT'})
+  //   arr.push({close:3,open:Math.random(),volume:Math.random(),time:i,currency:'ETHUSDT'})
+  //   arr.push({close:4,open:Math.random(),volume:Math.random(),time:i,currency:'LTCUSDT'})
+  // }
+  // console.log(arr)
+  // return
   let closet_arr_last = {}
+  let open_arr_last = {}
+  let high_arr_last = {}
+  let low_arr_last = {}
+  let ORDERS = {}
   let grouped = arr.reduce((acc, cur) => {
     if (!acc[cur.time]) {
       acc[cur.time] = [];
     }
+    if (!ORDERS[cur.currency]){
+      ORDERS[cur.currency] = []
+    }
     if (!closet_arr_last[cur.currency]){
       closet_arr_last[cur.currency] = new Array(CLOSET_ARR).fill(0)
     }
+    if (!open_arr_last[cur.currency]){
+      open_arr_last[cur.currency] = new Array(CLOSET_ARR).fill(0)
+    }
+    if (!high_arr_last[cur.currency]){
+      high_arr_last[cur.currency] = new Array(CLOSET_ARR).fill(0)
+    }
+    if (!low_arr_last[cur.currency]){
+      low_arr_last[cur.currency] = new Array(CLOSET_ARR).fill(0)
+    }
 
-    // rsi_01.push(cur.close)
-    // const rsi_01_c = RSI.calculate({ period:3, values: rsi_01 })
-    // console.log(cur.currency)
 
     acc[cur.time].push([
       (cur.currency),
       parseFloat(cur.close),
-      // parseFloat(cur.open),
+      parseFloat(cur.open),
+      parseFloat(cur.high),
+      parseFloat(cur.low),
       parseFloat(cur.volume),
-      // parseFloat(cur.high),
-      // parseFloat(cur.low)
     ]);
-    // rsi_01.shift();
     return acc;
   }, {});
-  function getRSI(){
 
-  }
   let tRawOutput = []
   let tRawInput = Object.entries(grouped).map(([time, values]) => {
-    // console.log(time,values)
     for (let i = 0; i < values.length; i++) {
-      // console.log('values[0]',values[i][0])
       closet_arr_last[values[i][0]].push(values[i][1])
+      open_arr_last[values[i][0]].push(values[i][2])
+      high_arr_last[values[i][0]].push(values[i][3])
+      low_arr_last[values[i][0]].push(values[i][4])
     }
 const outputRes = []
     for (let i = 0; i < values.length; i++) {
       const rsi = RSI.calculate({ period:CLOSET_ARR, values: closet_arr_last[values[i][0]] })
       const ema = EMA.calculate({ period:CLOSET_ARR, values: closet_arr_last[values[i][0]] });
+      const macdValues = MACD.calculate({
+        fastPeriod: Math.floor(CLOSET_ARR*0.47/2),
+        slowPeriod: CLOSET_ARR/2,
+        signalPeriod: Math.floor(CLOSET_ARR*0.3/2),
+        values: closet_arr_last[values[i][0]]
+    });
+      let adx = new ADX({
+        high: high_arr_last[values[i][0]],
+        low:  low_arr_last[values[i][0]],
+        close: closet_arr_last[values[i][0]],
+        period: 9,
+        smoothingPeriod: 14
+      });
+      const adxData = adx.getResult().at(-1)
+      // console.log('adx',adxData)
       const closeToday = closet_arr_last[values[i][0]].at(-1)
       const closeYesTodaday_1 = closet_arr_last[values[i][0]].at(-2)
-      const closeYesTodaday_2 = closet_arr_last[values[i][0]].at(-3)
       closet_arr_last[values[i][0]].shift()
+      open_arr_last[values[i][0]].shift()
+      high_arr_last[values[i][0]].shift()
+      low_arr_last[values[i][0]].shift()
       values[i].push(rsi.at(-1))
       values[i].push(ema.at(-1))
-      // const direction_of_growth = ((((closeToday-closeYesTodaday)/closeYesTodaday*100)+100)/200);///направление роста
-      outputRes.push(closeToday>closeYesTodaday_1?1:0)
+      values[i].push(Object.values(macdValues.at(-1))[0]||0)
+      values[i].push(Object.values(macdValues.at(-1))[1]||0)
+      values[i].push(Object.values(macdValues.at(-1))[2]||0)
+      values[i].push(Object.values(adxData)[0]||0)
+      values[i].push(Object.values(adxData)[1]||0)
+      values[i].push(Object.values(adxData)[2]||0)
+      const maxPriceInNextHour = Math.min(...closet_arr_last[values[i][0]].slice(-6));
+if (values[i][0]=='BTCUSDT'){
+  let pr = closeToday > maxPriceInNextHour ? 1 : 0
+  // console.log(maxPriceInNextHour,closeToday,pr,closeToday-maxPriceInNextHour,(closeToday-maxPriceInNextHour)/maxPriceInNextHour*100)
+}
+
+      outputRes.push(closeToday > maxPriceInNextHour ? 1 : 0);
+
     }
 
     tRawOutput.push(outputRes)
 
     for (let i = 0; i < values.length; i++) {
+
       values[i].shift()
     }
 
@@ -147,6 +169,7 @@ const outputRes = []
     // return [values.concat(...[])];
     return [values.flat().concat(...[])];
   });
+// return
 // console.log(rsi_01)
 //   console.log(tRawInput[3],tRawInput.length);
 //   console.log(tRawInput[4],tRawInput.length);
@@ -157,7 +180,8 @@ const outputRes = []
   const labels = tf.tensor2d(tRawOutput);
 
 
-  const splitIndex = Math.floor(trainingData.shape[0] * 0.8);
+  const splitIndex = Math.floor(trainingData.shape[0] * 0.70);
+// const splitIndex = trainingData.shape[0]-2
   const [trainInputs, testInputs] = tf.split(trainingData, [splitIndex, trainingData.shape[0] - splitIndex], 0);
   const [trainOutputs, testOutputs] = tf.split(labels, [splitIndex, labels.shape[0] - splitIndex], 0);
 
@@ -200,8 +224,8 @@ const outputRes = []
     console.log('Модель обучена');
 
     // После обучения делаем предсказание
-    const prediction = model.predict(testInputs);
-    prediction.print(); // Печатаем предсказание в консоль
+    // const prediction = model.predict(testInputs);
+    // prediction.print(); // Печатаем предсказание в консоль
 
 
     const predictions = model.predict(testInputs);
@@ -228,8 +252,8 @@ const outputRes = []
     srednee = totalsumm/predictionData.length
     for(let i = 0; i < predictionData.length; i++) {
 
-      const maxPers = srednee*1.1
-      const minPers = srednee*0.9
+      const maxPers = 0.5
+      const minPers = 0.5
 
       console.log(`Среднее: ${(srednee).toFixed(5)} текущее: ${(predictionData[i]).toFixed(5)} maxPers: ${(maxPers).toFixed(5)} minPers: ${(minPers).toFixed(5)} реал:  ${testData[i]}`)
       if (predictionData[i]>maxPers && testData[i]===1){
