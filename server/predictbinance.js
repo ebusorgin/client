@@ -6,7 +6,7 @@ const technicalindicators = require('technicalindicators');
 const EMA = technicalindicators.EMA;
 const RSI = technicalindicators.RSI;
 
-const FEATURES = ['close', 'volume','quote_asset_volume','ema_12','ema_24','ema_36','ema_72','ema_288','rsi_12','rsi_24','rsi_36','rsi_72','rsi_288'];
+const FEATURES = ['close', 'volume','ema_12','ema_24','ema_36','ema_72','ema_288','rsi_12','rsi_24','rsi_36','rsi_72','rsi_288'];
 let SYMBOLS_PAIRS = []
 const LOOK_BACK = [12*1,12*2,12*3,12*6,12*24];
 
@@ -131,12 +131,12 @@ async function createDataset(arr,windowSize,predict = false) {
 
         const outputWindow = [
           ...oneHotSymbol,
-          // Относительные изменения
-          (symbolData[i + 1].close - symbolData[i].close) / symbolData[i].close,
+          // Относительные изменения//(3000-3100)/-3100 = 0.3
+          (symbolData[i - 1].close - symbolData[i].close) / -symbolData[i].close,
           // Направление движения
-          symbolData[i + 1].close > symbolData[i].close ? 1 : 0,
-          symbolData[i + 2].close > symbolData[i].close ? 1 : 0,
-          symbolData[i + 3].close > symbolData[i].close ? 1 : 0,
+          symbolData[i-1].close < symbolData[i].close ? 1 : 0,
+          symbolData[i-2].close < symbolData[i].close ? 1 : 0,
+          symbolData[i-3].close < symbolData[i].close ? 1 : 0,
         ];
         numOutput = outputWindow.length
         outputTensors.push(outputWindow);
@@ -226,7 +226,7 @@ async function trainModel(model, data, params) {
   return { model, performance,history };
 }
 
-async function main(predict = false,datalength = 12*24*7,WINDOWS_SIZE = 12*1) {
+async function main(predict = false,datalength = 12*24,WINDOWS_SIZE = 12) {
   let model
   const data = await getData(datalength);
   const { trainData, testData, inputShape,outputUnits } = await createDataset(data,WINDOWS_SIZE);
@@ -237,7 +237,7 @@ async function main(predict = false,datalength = 12*24*7,WINDOWS_SIZE = 12*1) {
       returnSequences: true,
     },outputUnits);
 
-    const modPer = await trainModel(m,trainData,{epochs: 2, batchSize: WINDOWS_SIZE})
+    const modPer = await trainModel(m,trainData,{epochs: 1, batchSize: WINDOWS_SIZE})
     model = modPer.model
     performance = modPer.performance
     await saveModel(model)
@@ -268,7 +268,7 @@ async function saveModel(model) {
   const saveResults = await model.save('file://my-model-1');
   console.log('save');
 }
-// main().catch(console.error);
+main().catch(console.error);
 module.exports.createDataset = createDataset;
 module.exports.calculateIndicatorsEMA = calculateIndicatorsEMA;
 module.exports.calculateIndicatorsRSI = calculateIndicatorsRSI;

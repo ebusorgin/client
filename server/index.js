@@ -65,9 +65,14 @@ global.io = socketIo(server, {
 
 global.io.on('connection', (socket) => {
   console.log('a user connected');
+  io.emit('message', {method:'lastFivePredictions',data:{lastFivePredictions:BinanceDB.lastFivePredictions,symbols:BinanceDB.symbols}});
+  for (const symbol in BinanceDB.LAST_CANDL) {
+    io.emit('message', {method:'streamKlineCourse',data:{candle:BinanceDB.LAST_CANDL[symbol]}});
+  }
+
 
   socket.on('message', async (message) => {
-    console.log(message)
+    // console.log(message)
     switch (message.method){
       case 'updateCourse':
         socket.emit('message', {method:message.method,requestId:message.requestId,data:{}});
@@ -84,6 +89,14 @@ global.io.on('connection', (socket) => {
       case 'getHistory':
         let history = await BinanceDB.getHistory(message.data)
         socket.emit('message', {method:message.method,requestId:message.requestId,data:{history}});
+        break;
+      case 'createOrder':
+        let createOrder = await BinanceDB.createOrder(message.data)
+        socket.emit('message', {method:message.method,requestId:message.requestId,data:{createOrder}});
+        break;
+      case 'getOrders':
+        let orders = await BinanceDB.getOrders(message.data)
+        socket.emit('message', {method:message.method,requestId:message.requestId,data:{orders}});
         break;
     }
     // socket.broadcast.emit('message', message);

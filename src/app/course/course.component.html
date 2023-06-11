@@ -1,11 +1,31 @@
 <div class="container">
   <div class="pair-buttons">
-    <div *ngFor="let pair of getObjectKeys(socketService.DATA);let i=index;" class="pair-button btn btn-primary m-1" (click)="togglePair(pair,i)" [ngClass]="{'active': activePair === pair}">
+    <div *ngFor="let pair of getObjectKeys(socketService.DATA);let i=index;"
+         class="pair-button btn btn-primary m-1 text-center"
+         (click)="togglePair(pair,i)"
+         [ngClass]="{'active': activePair === pair}">
+
       <div *ngIf="socketService.DATA[pair][0]">
-        {{ pair }}
+        <span class="text-uppercase font-weight-bold">{{ pair }}</span>
+
+        <div *ngIf="socketService.DATA_NOW[pair]"  style="background-color: {{pf(socketService.DATA_NOW[pair].open)>pf(socketService.DATA_NOW[pair].close)?'#cb1818':'#42be44'}}">
+          <span class="text-lowercase">Open: {{pf(socketService.DATA_NOW[pair].open)}}</span><br>
+          <span class="text-lowercase">High: {{pf(socketService.DATA_NOW[pair].high)}}</span><br>
+          <span class="text-lowercase">Low: {{pf(socketService.DATA_NOW[pair].low)}}</span><br>
+          <span class="text-lowercase">Close: {{pf(socketService.DATA_NOW[pair].close)}}</span><br>
+          <span class="text-lowercase">Volume: {{pf(socketService.DATA_NOW[pair].volume)}}</span><br>
+          <span class="text-lowercase"
+                style="color:#FFFFFF;background-color:{{socketService.DATA_NOW[pair].close>socketService.DATA_NOW[pair].bestBid?'red':'green'}}">
+            bestBid: {{pf(socketService.DATA_NOW[pair].bestBid)}}</span><br>
+          <span class="text-lowercase"
+                style="color:#FFFFFF;background-color:{{socketService.DATA_NOW[pair].close>socketService.DATA_NOW[pair].bestAsk?'red':'green'}}">
+            bestAsk: {{pf(socketService.DATA_NOW[pair].bestAsk)}}</span><br>
+        </div>
+
       </div>
     </div>
   </div>
+
 
   <div class="period-buttons">
     <button class="btn btn-secondary m-1" (click)="togglePeriod(5*12)" [ngClass]="{'active': activePeriod === 1}">
@@ -24,6 +44,57 @@
       365*2d
     </button>
   </div>
+  <table>
+    <tr>
+      <td>currency</td>
+      <td>напр</td>
+
+      <td>операции</td>
+      <td>ТРЕЙДЫ</td>
+    </tr>
+    <tr *ngFor="let symbol of socketService.lastFivePredictions['currency']; let i = index">
+      <td style="cursor: pointer" (click)="togglePair(symbol.pair,i)">{{symbol.pair}}</td>
+      <td>{{pf(symbol.otn)}}</td>
+      <td><button (click)="createOrder(symbol.pair,socketService.DATA_NOW[symbol.pair].bestBid,'buy')">КУПИТЬ</button></td>
+      <td *ngIf="i==0" rowspan="5" style="vertical-align: top">
+        <table>
+          <thead>
+          <tr>
+            <th scope="col">currency</th>
+            <th scope="col">Free</th>
+            <th scope="col">Balance in USDT</th>
+            <th scope="col">Locked</th>
+          </tr>
+          </thead>
+          <tbody>
+          <tr *ngFor="let balance of socketService.BALANCE">
+            <td>{{balance.currency}}</td>
+            <td>{{balance.free}}</td>
+            <td>{{balance.balanceinusdt}}</td>
+            <td>{{balance.locked}}</td>
+          </tr>
+          </tbody>
+        </table>
+
+
+      </td>
+    </tr>
+
+  </table>
+  <div *ngFor="let data of socketService.ORDERS" style="font-size: 10px">
+    <span style="color:{{data.type=='buy'?'#27ef00':'#a20000'}}"> {{data.currency}}</span>
+    <span style="color:{{data.type=='buy'?'#27ef00':'#a20000'}}"> {{data.type}}</span>
+    <span style="font-weight: {{socketService.DATA_NOW[data.currency].bestBid>data.price?'bold':'lighter'}};" >
+      {{pf(data.price)}} ({{data.count}})</span>
+    <span> {{data.created_at}}</span>
+  </div>
+<div *ngFor="let trend of socketService.lastFivePredictions['trend']; let i = index">
+  {{trend}}
+</div>
+
+
+
+
 
   <div *ngIf="activePair" class="chart-container">
     <canvas class="chart" baseChart

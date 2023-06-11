@@ -1,18 +1,12 @@
-<app-calendar7day class="calendar"></app-calendar7day><table>
-  <thead>
-  <tr>
-    <th scope="col">currency</th>
-    <th scope="col">Free</th>
-    <th scope="col">Balance in USDT</th>
-    <th scope="col">Locked</th>
-  </tr>
-  </thead>
-  <tbody>
-  <tr *ngFor="let balance of socketService.BALANCE">
-    <td>{{balance.currency}}</td>
-    <td>{{balance.free}}</td>
-    <td>{{balance.balanceinusdt}}</td>
-    <td>{{balance.locked}}</td>
-  </tr>
-  </tbody>
-</table>
+<app-calendar7day class="calendar"></app-calendar7day>
+
+<div>
+  <button (click)="socketService.sendMessage('updateCourse',{})">Обновить БД</button>
+  <div *ngIf="socketService.MESSAGE_LOG['method']=='updateCourse'">
+    <div>pair {{socketService.MESSAGE_LOG['data'].pair}}</div>
+    <div> startDate {{socketService.MESSAGE_LOG['data'].startDate}}</div>
+    <div *ngIf="socketService.MESSAGE_LOG['data'].type"> type {{socketService.MESSAGE_LOG['data'].type}}</div>
+    <div *ngIf="socketService.MESSAGE_LOG['data'].length"> length {{socketService.MESSAGE_LOG['data'].length}}</div>
+
+  </div>
+</div>

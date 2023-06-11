@@ -5,11 +5,13 @@ const createDataset = require('./predictbinance').createDataset;
 const getData = require('./predictbinance').getData;
 const calculateIndicatorsEMA = require('./predictbinance').calculateIndicatorsEMA;
 const calculateIndicatorsRSI = require('./predictbinance').calculateIndicatorsRSI;
+const cron = require('node-cron');
 require('./predictbinance')
 const main = require('./predictbinance').main;
 const tf = require('@tensorflow/tfjs');
 require('@tensorflow/tfjs-node');
 const Binance = require('binance-api-node').default
+
 // Аутентификация
 const client = Binance({
   apiKey: 'uAZfNvppgt1HvDtstQLLfFVLqcbbBbZhjv3khtxllBVpuyFKZFk4q774SRxHsCL3',
@@ -18,180 +20,125 @@ const client = Binance({
 const FEATURES = ['close', 'volume','quote_asset_volume','ema_12','ema_24','ema_36','ema_72','ema_288','rsi_12','rsi_24','rsi_36','rsi_72','rsi_288'];
 
 class BinanceDB {
-  PAIRS = []
-  model
+  DB
+  binance
+  SYMBOLS = []
+  MODEL
+  CANDLES = {}
+  maxLengthCANDLES = 12*24
+  PRICE_NOW = {}
+
+  lastFivePredictions
     constructor() {
         this.DB = new db();
         this.binance = new Binance_candlesticks();
         this.create().then(r => {})
     }
   async create() {
-    await this.parsePairData()
-    await this.loadModel()
-    await this.trackPrices()
-    await this.loadDataPredict()
-  }
-  async loadModel(){
-    this.model = await tf.loadLayersModel('file://my-model-1/model.json');
+    await this.loadData()
+    cron.schedule('1,6,11,16,21,26,31,36,41,46,51,56 * * * *', this.getCandles.bind(this));
+    cron.schedule('*/5 * * * * *', this.getOnlenePrice.bind(this));
 
+
+    // await this.loadDataPredict()
+    // await this.getOnlenePrice()
+  }
+  async loadData(){
+    this.MODEL = await tf.loadLayersModel('file://my-model-1/model.json');
+    const selectQuery = `SELECT name FROM binance.currency_pairs WHERE enabled=true`;
+    const result = await this.DB.query(selectQuery);
+    for (const pair of result) {
+      this.SYMBOLS.push(pair.name)
+      this.CANDLES[pair.name] = []
+      this.PRICE_NOW[pair.name] = 0
+    }
+    const d = await getData(this.maxLengthCANDLES)
+    d.map(d=>this.CANDLES[d.currency].push(d))
   }
   async loadDataPredict(){
     console.log('loadDataPredict')
-    const {result,symbols} = await main(true,12*3,12);
+    const {result,symbols} = await main(true,12*24,12);
 // Берем только последние пять предсказаний
     const lastFivePredictions = result.slice(-5);
+    this.lastFivePredictions = lastFivePredictions
+    this.symbols = symbols
     io.emit('message', {method:'lastFivePredictions',data:{lastFivePredictions,symbols}});
-    lastFivePredictions.forEach((prediction, predictionIdx) => {
-      console.log(`Предсказание ${predictionIdx + 1} из 5:`);
-
-      prediction.forEach((value, index) => {
-        if (index < symbols.length) {
-          console.log(`  Валюта1: ${symbols[index]}, Вероятность: ${value}`);
-        } else {
-          console.log(`  Относительное изменение цены: ${value}`);
-        }
-      });
-
-      console.log();  // Добавляем пустую строку между предсказаниями
-    });
-
-   // let data = {}
-    //
-    // arr.map(d=>{data[d.currency] = []})
-    // for (let i = 0; i < arr.length; i++) {
-    //   arr[i].close = parseFloat(arr[i].close)
-    //   if (!data[arr[i].currency]){
-    //     data[arr[i].currency] = []
-    //   }
-    //   data[arr[i].currency].push(arr[i])
-    // }
-    // Object.keys(data).map(pair=>{
-    //
-    //   data[pair] = calculateIndicatorsEMA(data[pair])
-    //   data[pair] = calculateIndicatorsRSI(data[pair])
-    // const inputWindow = res.map(data=>{
-    //   const symbol = data.currency
-    //   const symbolData = data[symbol];
-    //   const oneHotSymbol = Object.keys(res).map(s => (s === symbol ? 1 : 0));
-    //   console.log(symbolData)
-    //   const features = [
-    //     ...oneHotSymbol,
-    //     ...FEATURES.map(feat => parseFloat(symbolData[feat])),
-    //   ];
-    //   return features
-    // })
-    // console.log(inputWindow)
 
   }
-  async trackPrices() {
-    this.PAIRS.forEach(symbol => {
-
-      const ws = client.ws.candles(symbol, '5m', async candle => {
-        io.emit('message', {method:'streamKlineCourse',data:{candle}});
-        // console.log(`${symbol}`,candle);
-
-        if (candle.isFinal) {
-          // console.log(`${symbol}`,candle);
-          let arr = [candle.startTime,candle.open, candle.high,candle.low,candle.close,candle.volume,
-            candle.closeTime,
-            candle.quoteVolume,candle.trades,candle.buyVolume,
-            candle.quoteBuyVolume]
-          // await this.saveCandlestickToDB([arr],symbol)
-          await this.parsePairData()
-          await this.loadDataPredict()
-          // await this.loadDataPredict()
-        }
-      });
-    });
+  async getOrders(){
+    return await this.DB.query(`SELECT * FROM binance.orders WHERE status!='close'`)
   }
+  async createOrder(data){
+    return await this.DB.query(`INSERT INTO binance.orders (type, currency, price, count) VALUES ('${data.type}', '${data.currency}', ${data.price},${data.count});`)
+  }
+  async getCandles() {
+    let symbolsMinMaxCandles = await this.DB.query(
+      `SELECT currency, MAX(time),MIN(time)
+        FROM binance.candlestic c
+        LEFT join binance.currency_pairs cp on cp.enabled =true
+        where cp."name" =c.currency
+        GROUP BY currency;`)
 
-  async parsePairData(socket) {
-
-    const selectQuery = `SELECT name FROM binance.currency_pairs WHERE name  LIKE '%USDT' AND enabled=true`;
-    const result = await this.DB.query(selectQuery);
-    this.PAIRS = []
-    for (const pair of result) {
-      this.PAIRS.push(pair.name)
-      const cur = pair.name.replace('USDT','')
-      const startDate = await this.getLastRecordDate(pair.name);
+    for (const symbol of this.SYMBOLS) {
+      let dateMinMax = symbolsMinMaxCandles.find(d=>d.currency===symbol)
+      const startDate = dateMinMax.max
       const endDate = new Date(startDate);
-      endDate.setDate(startDate.getDate() + 1); // 2 января 2023 года
+      endDate.setDate(startDate.getDate() + 1);
 
       const today = new Date();
+      while (dateMinMax.max < today) {
+        const data = await client.candles({ symbol, interval :'5m',startTime: startDate.getTime(),endTime:endDate.getTime()})
+        data.map(d=>{
+          return {
+            time: d.openTime,
+            open: d.open,
+            high: d.high,
+            low: d.low,
+            close: d.close,
+            volume: d.volume,
+            close_time:d.closeTime,
+          }
+        })
+        io.emit('message', {method:'updateCandles',data:{data,symbol}});
 
-      while (startDate < today) {
-
-      const y = await new Promise((resolve, reject) => {
-          this.binance.candlesticks(pair.name, '5m', (error, data, symbol) => {
-            if (error) {
-              console.log(`Произошла ошибка при обработке ${symbol}:`, JSON.stringify(error, null, 2));
-              resolve(null);
-            } else {
-              data.pop()
-              resolve(data);
-            }
-          }, {startTime: startDate.getTime(), endTime: endDate.getTime()});
-        });
-        if (!y||y.length==0){
-          console.log('NOT DATA ',startDate,pair.name)
-          break;
-        }
-       await this.saveCandlestickToDB(y,pair.name)
-        socket?socket.emit('message',{method:'updateCourse',data:{startDate,pair:pair.name,length:y.length}}):null
+        this.CANDLES[symbol].concat(data).slice(-this.maxLengthCANDLES);
+        await this.saveCandlestickToDB(data,symbol)
         startDate.setDate(startDate.getDate() + 1);
         endDate.setDate(endDate.getDate() + 1);
-
       }
     }
-
   }
+  async getOnlenePrice() {
+    this.SYMBOLS.map(async symbol=>{
+      const ticker = await client.prices({ symbol });
+      this.PRICE_NOW[symbol] = parseFloat(ticker[symbol])
+      io.emit('message', {method:'streamKlineTicker',data:{symbol,price:this.PRICE_NOW[symbol]}});
+    })
+  }
+
   async saveCandlestickToDB(data,pair){
-    // console.log(data)
-    const insertQuery = `
-            INSERT INTO binance.candlestic (
-                time,open, high,low,close,volume,close_time,quote_asset_volume,
-                number_of_trades,taker_buy_base_asset_volume,
-                taker_buy_quote_asset_volume,currency
-            )
-            VALUES (
-                $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11,$12
-            )  ON CONFLICT DO NOTHING
-        `;
-    data.map( (candlestick) => {
+    data.map( (c) => {
+      if (new Date(c.closeTime)>new Date()){
+        return
+      }
       const params = [
-        new Date(candlestick[0]),
-        parseFloat(candlestick[1]),
-        parseFloat(candlestick[2]),
-        parseFloat(candlestick[3]),
-        parseFloat(candlestick[4]),
-        parseFloat(candlestick[5]),
-        new Date(candlestick[6]),
-        parseFloat(candlestick[7]),
-        parseInt(candlestick[8]),
-        parseFloat(candlestick[9]),
-        parseFloat(candlestick[10]),
+        new Date(c.openTime),
+        parseFloat(c.open),
+        parseFloat(c.high),
+        parseFloat(c.low),
+        parseFloat(c.close),
+        parseFloat(c.volume),
+        new Date(c.closeTime),
         pair
       ]
-      this.DB.query(insertQuery, params).then(data=>{
-      }).catch(err=>{
-        console.log('err',err)
-      });
-
-
+      this.DB.query(`
+            INSERT INTO binance.candlestic
+            (time,open, high,low,close,volume,close_time, currency)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)  ON CONFLICT DO NOTHING`, params)
     });
-    console.log('save ',pair,data.length)
   }
 
-  async getLastRecordDate(symbols) {
-    const selectQuery = `SELECT MAX(time) AS time FROM binance.candlestic where currency ='${symbols}' ORDER BY time DESC LIMIT 1`;
-    const result = await this.DB.query(selectQuery);
-    if (result.length > 0 && result[0].time) {
-      return result[0].time;
-    } else {
-      // Возвращаем стандартную дату, если нет записей
-      return new Date('2023-01-01T00:00:00Z');
-    }
-  }
+
   async getBalance() {
     const result = [];
 
@@ -238,7 +185,8 @@ class BinanceDB {
                           WHERE currency = '${result[i].currency}';`;
     await this.DB.query(selectQuery);
     }
-    return result;
+    return await this.DB.query(`SELECT * FROM binance.balance`);
+    // return result;
   }
   async getCurrency(){
     return await this.DB.query(`SELECT can.currency as pair, MAX(can.time) as max,MIN(can.time) AS min
@@ -248,25 +196,12 @@ class BinanceDB {
                         GROUP BY can.currency;`)
   }
   async getHistory({pair,limit}){
-
     return await this.DB.query(`SELECT can.* FROM  binance.candlestic can
-left join binance.currency_pairs cp on cp."name" =can.currency
-where cp.enabled =true AND can.currency ='${pair}' ORDER BY time DESC LIMIT ${limit}`)
+      left join binance.currency_pairs cp on cp."name" =can.currency
+      where cp.enabled =true AND can.currency ='${pair}' ORDER BY time DESC LIMIT ${limit}`)
   }
 
 }
 
 
-// function trackPrices(symbols) {
-//   symbols.forEach(symbol => {
-//     const ws = client.ws.candles(symbol, '1m', candle => {
-//       if (candle.isFinal) {
-//         console.log(`${symbol}: ${candle.close}`);
-//       }
-//     });
-//   });
-// }
-//
-// // Используйте этот метод для отслеживания цен на несколько валют:
-// trackPrices(['btcusdt', 'ethusdt', 'bnbusdt']);
 module.exports = BinanceDB;

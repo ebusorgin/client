@@ -10,7 +10,10 @@ import zoomPlugin from 'chartjs-plugin-zoom';
 const chartStates:boolean[] = [true,true,false,false,false,false,false]
 const defaultLegendClickHandler = Chart.defaults.plugins.legend.onClick;
 
-
+export class Prediction {
+  symbol: string;
+  prediction: number[];
+}
 @Component({
   selector: 'app-course',
   templateUrl: './course.component.html',
@@ -18,11 +21,12 @@ const defaultLegendClickHandler = Chart.defaults.plugins.legend.onClick;
 })
 
 export class CourseComponent implements OnChanges {
+  tradingArr = []
   activePair = ''
   activePeriod = 24
   selectedDate: Date = new Date();
   weekDays = ['пн','вт','ср','чт','пт','сб','вс']
-
+  predictions: Prediction[];
   public financialChartType: ChartType = 'candlestick';
 
   @ViewChild(BaseChartDirective) chart?: BaseChartDirective;
@@ -30,6 +34,27 @@ export class CourseComponent implements OnChanges {
   constructor(public socketService: SocketService) {
     Chart.register(CandlestickController, OhlcController, CandlestickElement, OhlcElement,zoomPlugin);
 
+  }
+  createOrder(currency,price,type){
+    console.log(1/price*12)
+    const data = {
+      type,
+      currency,
+      count:1/price*12,
+      price:this.pf(price),
+      date:new Date()
+    }
+    this.socketService.sendMessage('createOrder',data).subscribe(data=>{
+      console.log(data)
+    })
+    this.socketService.ORDERS.push(data)
+  }
+
+  getAverage(prediction: number[]): number {
+    return prediction['prediction'].reduce((prev, curr) => prev + curr, 0) / prediction.length;
+  }
+  pf(n){
+    return parseFloat(n).toFixed(3)
   }
   onDateChange(event: any) {
     const selectedDate = new Date((event.target as HTMLInputElement).value);
@@ -330,4 +355,6 @@ export class CourseComponent implements OnChanges {
   }
   ngOnChanges(changes: SimpleChanges): void {
   }
+
+  protected readonly Date = Date;
 }
