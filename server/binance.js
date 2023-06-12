@@ -36,6 +36,7 @@ class BinanceDB {
     }
   async create() {
     await this.loadData()
+    await this.getCandles()
     cron.schedule('1,6,11,16,21,26,31,36,41,46,51,56 * * * *', this.getCandles.bind(this));
     cron.schedule('*/5 * * * * *', this.getOnlenePrice.bind(this));
 
@@ -81,12 +82,19 @@ class BinanceDB {
 
     for (const symbol of this.SYMBOLS) {
       let dateMinMax = symbolsMinMaxCandles.find(d=>d.currency===symbol)
+      if (!dateMinMax){
+        dateMinMax = {
+          max: new Date('2019-01-01')
+        }
+      }
       const startDate = dateMinMax.max
       const endDate = new Date(startDate);
       endDate.setDate(startDate.getDate() + 1);
 
       const today = new Date();
       while (dateMinMax.max < today) {
+        console.log(startDate,endDate,symbol)
+
         const data = await client.candles({ symbol, interval :'5m',startTime: startDate.getTime(),endTime:endDate.getTime()})
         data.map(d=>{
           return {

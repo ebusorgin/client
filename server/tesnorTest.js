@@ -1,4 +1,5 @@
 const tf = require('@tensorflow/tfjs-node');
+
 const db = require('./db');
 const DB = new db();
 const technicalindicators = require('technicalindicators');
@@ -15,25 +16,38 @@ const ADX = technicalindicators.ADX;
 //   [1,0,0,1],
 //   [1,0,0,1]
 // ]);
-
+let currencies = []; // replace this with your actual list of currencies
+const NORMALIZ_WINDOW = 12*24
 const CLOSET_ARR = 12*24
-const DB_ARR_LENGTH_DAY = 10
-const LSTM_LAYER_UNITS = 12*10
-const EPOCHS =5
-const BATCHSIZE = 12*5
+const DB_ARR_LENGTH_DAY = 1200
+const LSTM_LAYER_UNITS = 12*24
+const EPOCHS =30
+const BATCHSIZE = 12*2
 const HIDDEN_LAYERS = [
-  // {
-  //   units: 200,
-  //   activation: 'sigmoid'
-  // },
-  // {
-  //   units: 100,
-  //   activation: 'sigmoid'
-  // },
+
+    tf.layers.dense({units: 800}),
+  tf.layers.dropout({rate:0.1}),
+    tf.layers.dense({units: 400}),
+    tf.layers.dense({units: 200}),
+
+
+  tf.layers.dense({units: 200,kernelRegularizer: tf.regularizers.l2({ l2:0.01 })}),
+    tf.layers.dense({units: 200}),
+    tf.layers.dense({units: 200}),
+    tf.layers.dense({units: 200}),
+    tf.layers.dense({units: 100,kernelRegularizer: tf.regularizers.l2({ l2:0.01 })}),
+
+    // tf.layers.dropout({rate:0.5}),
+    tf.layers.dense({units: 100,kernelRegularizer: tf.regularizers.l2({ l2:0.01 })}),
+    tf.layers.batchNormalization(),
+    tf.layers.leakyReLU(),
+    tf.layers.dense({units: 50}),
+
+
 ]
 
 
-async function getData(daylength=3,startData='2023-01-02') {
+async function getData(daylength=3,startData='2019-01-01') {
 
   // Определение даты окончания для запроса
   let endDate = new Date(startData);
@@ -48,6 +62,15 @@ async function getData(daylength=3,startData='2023-01-02') {
   order by time,currency`
   const res = await DB.query(sql);
   return res;
+}
+async function zScoreNormalization(tensor) {
+  const {mean, variance} = tf.moments(tensor);
+  const stdDev = tf.sqrt(variance);
+
+  const meanVal = await mean.array();
+  const stdDevVal = await stdDev.array();
+
+  return tensor.sub(meanVal).div(stdDevVal);
 }
 function calculatePriceChange(todayPrice, yesterdayPrice) {
   let priceChange = ((todayPrice - yesterdayPrice) / yesterdayPrice) * 100;
@@ -84,6 +107,7 @@ async function main(){
     }
     if (!closet_arr_last[cur.currency]){
       closet_arr_last[cur.currency] = new Array(CLOSET_ARR).fill(0)
+      currencies.push(cur.currency)
     }
     if (!open_arr_last[cur.currency]){
       open_arr_last[cur.currency] = new Array(CLOSET_ARR).fill(0)
@@ -148,17 +172,23 @@ const outputRes = []
       values[i].push(Object.values(adxData)[0]||0)
       values[i].push(Object.values(adxData)[1]||0)
       values[i].push(Object.values(adxData)[2]||0)
-      const maxPriceInNextHour = Math.min(...closet_arr_last[values[i][0]].slice(-6));
-if (values[i][0]=='BTCUSDT'){
-  let pr = closeToday > maxPriceInNextHour ? 1 : 0
-  // console.log(maxPriceInNextHour,closeToday,pr,closeToday-maxPriceInNextHour,(closeToday-maxPriceInNextHour)/maxPriceInNextHour*100)
-}
+// if (closeToday > maxPriceInNextHour&&values[i][0]==='BTCUSDT'){
+//   let pr = closeToday >= maxPriceInNextHour ? 1 : 0
+//
+//   console.log(values[i][0],maxPriceInNextHour,closeToday,pr,closeToday-maxPriceInNextHour,(closeToday-maxPriceInNextHour)/maxPriceInNextHour*100)
+//
+// }
+// if (values[i][0]==='BTCUSDT'){
+//
+// }
+      const minPriceInNextHour = Math.min(...low_arr_last[values[i][0]].slice(-12));
+      const maxPriceInNextHour = Math.max(...high_arr_last[values[i][0]].slice(-12, -1));
 
       outputRes.push(closeToday > maxPriceInNextHour ? 1 : 0);
-
     }
 
     tRawOutput.push(outputRes)
+
 
     for (let i = 0; i < values.length; i++) {
 
@@ -169,18 +199,27 @@ if (values[i][0]=='BTCUSDT'){
     // return [values.concat(...[])];
     return [values.flat().concat(...[])];
   });
-// return
+  console.log('END')
+
 // console.log(rsi_01)
 //   console.log(tRawInput[3],tRawInput.length);
 //   console.log(tRawInput[4],tRawInput.length);
 //   console.log(tRawOutput);
 
 
-  const trainingData = tf.tensor3d(tRawInput);
+  let normalizedInput = [];
+  for (let i = 0; i < tRawInput.length; i += NORMALIZ_WINDOW) {
+    let window = tRawInput.slice(i, i + NORMALIZ_WINDOW);
+    let tensorWindow = tf.tensor3d(window);
+    let normalizedWindow = await zScoreNormalization(tensorWindow);
+    normalizedInput.push(...normalizedWindow.arraySync());
+  }
+
+  const trainingData = tf.tensor3d(normalizedInput);
   const labels = tf.tensor2d(tRawOutput);
 
 
-  const splitIndex = Math.floor(trainingData.shape[0] * 0.70);
+  const splitIndex = Math.floor(trainingData.shape[0] * 0.99);
 // const splitIndex = trainingData.shape[0]-2
   const [trainInputs, testInputs] = tf.split(trainingData, [splitIndex, trainingData.shape[0] - splitIndex], 0);
   const [trainOutputs, testOutputs] = tf.split(labels, [splitIndex, labels.shape[0] - splitIndex], 0);
@@ -192,14 +231,19 @@ if (values[i][0]=='BTCUSDT'){
   const model = tf.sequential();
 
 // Добавление LSTM слоя
-  model.add(tf.layers.lstm({
+  model.add(tf.layers.gru({
     units: LSTM_LAYER_UNITS,
     inputShape: [null, trainingData.shape[2]],
     returnSequences: false
   }));
 
+  // model.add(tf.layers.dropout({
+  //   rate: 0.5
+  // }));
+  // model.add(tf.layers.batchNormalization());
   for (let i = 0; i < HIDDEN_LAYERS.length; i++) {
-    model.add(tf.layers.dense(HIDDEN_LAYERS[i]));
+
+    model.add(HIDDEN_LAYERS[i]);
   }
 
 // Добавление полносвязного слоя для классификации
@@ -229,56 +273,82 @@ if (values[i][0]=='BTCUSDT'){
 
 
     const predictions = model.predict(testInputs);
-    const predictionData = predictions.dataSync();
-    const testData = testOutputs.dataSync();
-    let totalError = 0;
-    let totalAbsoluteError = 0;
-    let countTrue = 0;
+    const predictionDataArray = Array.from(predictions.dataSync());
+    const testDataArray = Array.from(testOutputs.dataSync());
+    const numRows = predictionDataArray.length / labels.shape[1];
+    const numCols = labels.shape[1];
 
-// Мы предполагаем, что predictionData и testData имеют одинаковую длину
+    const formattedPredictionData = [];
+    const formattedTestData = [];
 
-    let totalsumm = 0
-    let uchtennie = 0
-    let isRight = 0
-    let isLose = 0
-    let srednee = 0
-    let MaxPr = 0
-    let MinPr = 0
-    for(let i = 0; i < predictionData.length; i++) {
-      if (predictionData[i]>MaxPr){MaxPr = predictionData[i]}
-      if (predictionData[i]<MinPr){MinPr = predictionData[i]}
-      totalsumm+=predictionData[i]
-    }
-    srednee = totalsumm/predictionData.length
-    for(let i = 0; i < predictionData.length; i++) {
-
-      const maxPers = 0.5
-      const minPers = 0.5
-
-      console.log(`Среднее: ${(srednee).toFixed(5)} текущее: ${(predictionData[i]).toFixed(5)} maxPers: ${(maxPers).toFixed(5)} minPers: ${(minPers).toFixed(5)} реал:  ${testData[i]}`)
-      if (predictionData[i]>maxPers && testData[i]===1){
-        isRight++
-      }else if (predictionData[i]>maxPers && testData[i]===0){
-        isLose++
+    for (let i = 0; i < numRows; i++) {
+      const predictionRow = [];
+      const testRow = [];
+      for (let j = 0; j < numCols; j++) {
+        predictionRow.push(predictionDataArray[i * numCols + j]);
+        testRow.push(testDataArray[i * numCols + j]);
       }
-      if (predictionData[i]<minPers && testData[i]===0){
-        isRight++
-      }else if (predictionData[i]<minPers && testData[i]===1){
-        isLose++
-      }
-
+      formattedPredictionData.push(predictionRow);
+      formattedTestData.push(testRow);
     }
 
-    console.log('правильных к неправильным:', isRight,isLose,predictionData.length);
+    // console.log('Prediction Data:');
+    // console.log(formattedPredictionData);
+    //
+    // console.log('Test Data:');
+    // console.log(formattedTestData);
+    const currencyPredictions = {};
 
-    let totalAnswers = isRight + isLose;
+    for (let i = 0; i < formattedPredictionData.length; i++) {
+      for (let j = 0; j < currencies.length; j++) {
+        const currency = currencies[j];
 
-    let correctPercentage = (isRight / totalAnswers) * 100;
-    let incorrectPercentage = (isLose / totalAnswers) * 100;
+        // Create an array for this currency if it doesn't exist yet
+        if (!currencyPredictions[currency]) {
+          currencyPredictions[currency] = {
+            currency,
+            predictions: [],
+            actual: [],
+            isRight: 0,
+            isLose: 0,
+            countTrue: 0,
+          };
+        }
 
-    console.log("Процент верных ответов:", correctPercentage);
-    console.log("Процент неверных ответов:", incorrectPercentage);
+        // Add the prediction and actual value to the arrays
+        currencyPredictions[currency].predictions.push(formattedPredictionData[i][j]);
+        currencyPredictions[currency].actual.push(formattedTestData[i][j]);
 
+        // Evaluate the predictions
+        const maxPers = 0.5;
+        const minPers = 0.5;
+
+        if (formattedPredictionData[i][j] > maxPers && formattedTestData[i][j] === 1) {
+          currencyPredictions[currency].isRight++;
+          currencyPredictions[currency].countTrue++;
+        } else if (formattedPredictionData[i][j] > maxPers && formattedTestData[i][j] === 0) {
+          currencyPredictions[currency].isLose++;
+        }
+        if (formattedPredictionData[i][j] < minPers && formattedTestData[i][j] === 0) {
+          currencyPredictions[currency].isRight++;
+        } else if (formattedPredictionData[i][j] < minPers && formattedTestData[i][j] === 1) {
+          currencyPredictions[currency].isLose++;
+        }
+      }
+    }
+
+    Object.values(currencyPredictions).forEach((value) => {
+      console.log(`--- ${value.currency} ---`);
+      console.log(`Total predictions: ${value.predictions.length}`);
+      console.log(`Correct predictions: ${value.isRight}`);
+      console.log(`Incorrect predictions: ${value.isLose}`);
+      console.log(`True predictions: ${value.countTrue}`);
+      console.log('===============================');
+    });
+
+
+
+    // console.log(currencyPredictions)
   });
 }
 

@@ -268,7 +268,7 @@ async function saveModel(model) {
   const saveResults = await model.save('file://my-model-1');
   console.log('save');
 }
-main().catch(console.error);
+// main().catch(console.error);
 module.exports.createDataset = createDataset;
 module.exports.calculateIndicatorsEMA = calculateIndicatorsEMA;
 module.exports.calculateIndicatorsRSI = calculateIndicatorsRSI;
